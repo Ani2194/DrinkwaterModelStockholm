@@ -1,0 +1,948 @@
+import pandas as pd 
+import numpy as np 
+import matplotlib.pyplot as plt 
+from datetime import datetime
+import matplotlib.dates as mdates
+import seaborn as sns
+import random 
+# random forest
+from sklearn.ensemble import BaggingClassifier, RandomForestClassifier
+#LOgs
+import sklearn.linear_model as skl
+# SVM
+from sklearn import svm
+#bosting
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier
+
+# linear regression
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+
+### The following csv files have been modified to suit the code.... Hence this code cannot be directly used 
+#temperature reading file#
+Temperature=pd.read_csv(r'Downloads\smhi-opendata_1_97200_20221213_101122.csv',sep=';', skiprows=(9), index_col="Datum")
+Temperature.index=pd.to_datetime(Temperature.index,infer_datetime_format=True)
+Temperature=Temperature.loc['2020-05-01':'2020-09-16']
+#Taking mean temperature of the day
+Tmeanday=Temperature['Lufttemperatur'].resample('D', origin = 2020-5-1).mean()
+Tmeanday=Tmeanday.to_frame()
+Tmeanday.drop(Tmeanday.index[0], axis=0, inplace=True)
+Tmeanday.reset_index(level=['Datum'], inplace=True)
+
+#watermeter reading 
+df=pd.read_csv(r'D:\00.MWE\period 6\DWE\Group Project\CSV\meterreading.csv',sep=',')
+df['Date'] = pd.to_datetime(df.Date,infer_datetime_format=True)
+#creating seperate files for non building type (later we did not use this way, we just calculated without considering building type)
+Dwn=df[:]
+Dwn.drop(df.loc[df['TOB']!='non'].index, inplace=True) #only data without building type
+#Data wwith type of building (Dwt)#
+Dwithtype=df[:]
+#drop meter with nan
+Dwithtype.drop(Dwithtype.loc[Dwithtype['TOB']=='non'].index, inplace=True)
+# Dwithtype.reset_index(drop=True, inplace=True)
+
+#consumption calculation
+
+def consume(x):
+    x['Consumption']=np.nan
+    for i in range(len(x.iloc[:,0]) - 1): 
+        if x.iloc[i, 0] == x.iloc[i+1, 0]:
+            x['Consumption'][i] = x.iloc[i+1, 1] - x.iloc[i,1]
+        else :
+            x.iloc[i,1] = 0
+    return x
+
+dfall=consume(df) #calculate consumption for all
+
+#Seperating the data type# coz i had done like this previously, didnt want to change codes
+Villa=dfall[dfall.TOB == 'Villa']
+Villawithpool = dfall[dfall.TOB == 'Villa m. pool']
+Institution = dfall[dfall.TOB == 'Övrigt']
+Appartments =dfall[dfall.TOB == 'Flerbostadshus']
+
+####  FOR ALL GIVEN DATA SET (was initial plan, didnt want to change code)  (this section is only used at last)  ###############
+
+Dwithtype.set_index("Date", inplace = True)
+Dwithtype=consume(Dwithtype)
+Dwithtypesum=Dwithtype['Consumption'].resample('D', origin = 2020-5-1).sum()
+Dwithtypesum=Dwithtypesum.to_frame()
+Dwithtypesum.reset_index(level=['Date'], inplace=True)
+####  FOR ALL GIVEN DATA SET (this has been used   ###############
+dfall.set_index("Date", inplace = True)
+dfallsum=dfall['Consumption'].resample('D', origin = 2020-5-1).sum()
+dfallsum=dfallsum.to_frame()
+dfallsum=dfallsum.drop(dfallsum.index[0], axis=0)
+dfallsum.reset_index(inplace = True)
+# update_df = df.drop('c')
+
+#Temperature and consumption merge#
+result = pd.concat([Tmeanday, dfallsum], axis=1)
+result=result.drop(columns=['Datum'], axis=0)
+Meantemp = Tmeanday["Lufttemperatur"].mean()
+Meanconsumption=result["Consumption"].mean()
+
+#corelation temp and consumption
+z=result.iloc[:,0].corr(result.iloc[:,2])
+
+#factor NORMALIZING THE DATA #
+result['Factor1'] = np.nan
+result['Factor2']=np.nan
+for i in range(len(result)):
+    result['Factor1'][i]=result.iloc[i][0]/Meantemp
+    result['Factor2'][i]=result.iloc[i][2]/Meanconsumption
+
+result.set_index("Date", inplace = True)
+result.reset_index(level=['Date'], inplace = True)
+#Temperature Plot#
+ax = plt.gca()
+ax.plot(result['Date'],result["Factor1"],result['Date'],result["Factor2"] )
+ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=range(1,12)))
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%b'))
+ax.legend(["Temperature","Water Consumption"],loc="upper left", fontsize = '7')
+ax.set_title( "Daily Mean temperature and Water Consumption variation from May to september")
+ax.set_xlabel("[Date]")
+ax.set_ylabel( "Normalized Factor")   
+ax.show()
+#Relation plot#
+ax=sns.set_style("whitegrid")
+ax = sns.lmplot(x="Lufttemperatur", y="Consumption", line_kws={'color': 'red'},height=4,aspect=1.5,data=result).set(title='Relation between temperature and Consumption')
+ax.set(xlabel='Temperature [celcius]', ylabel='Total Consumption [m3]')
+
+#####becccause i had done like this previously and didnt want to change code#########
+Villa.set_index("Date", inplace = True)
+Villasum=Villa['Consumption'].resample('D', origin = 2020-5-1).sum()
+# Villahour=Villa['Consumption'].resample('1H', origin = 2020-5-1).sum()
+Villasum=Villasum.to_frame()
+# Villahour=Villahour.to_frame()
+Villasum.reset_index(level=['Date'], inplace=True)
+#Villa pool
+Villawithpool.set_index("Date", inplace = True)
+Villawithpoolsum=Villawithpool['Consumption'].resample('D', origin = 2020-5-1).sum()
+Villawithpoolsum=Villawithpoolsum.to_frame()
+Villawithpoolsum.reset_index(level=['Date'], inplace=True)
+#institution
+Institution.set_index("Date", inplace = True)
+Institutionsum=Institution['Consumption'].resample('D', origin = 2020-5-1).sum()
+Institutionsum=Institutionsum.to_frame()
+Institutionsum.reset_index(level=['Date'], inplace=True)
+#Appartments
+Appartments.set_index("Date", inplace = True)
+Appartmentssum=Appartments['Consumption'].resample('D', origin = 2020-5-1).sum()
+Appartmentssum=Appartmentssum.to_frame()
+Appartmentssum.reset_index(level=['Date'], inplace=True)
+##Aadd all to one dataframe
+All = pd.concat([Tmeanday, Villasum,Villawithpoolsum,Institutionsum,Appartmentssum], axis=1)
+All=All.drop(columns=['Date'], axis=0)
+All.columns = ['Date','Temperature', 'Villa', 'Villawithpool', 'Institution', 'Appartments']
+#corelation of consumption by villa types with temperature # not included in report
+z = {}
+for i in range(2,6):
+    a = All.iloc[:,i]
+    b = All.iloc[:,1] 
+    z[i]=a.corr(b)
+z=pd.DataFrame.from_dict(z, orient='index')
+z.index=['Villa', 'Villawithpool', 'Institution', 'Appartments']
+z.columns=['Coorelation coeff']
+z=z.sort_values(by=['Coorelation coeff'], ascending=False)
+z.plot.bar(y=['Coorelation coeff'], use_index=True)
+plt.title('Check for coorelation between Temperature and Consumption')
+plt.ylabel('Cooralation coeff.')
+plt.xlabel('Variables')
+plt.show()
+
+#24hour pattern dataset for month dataframe not necessary to do this way. just resample works
+def monthconsump(month):
+    month.reset_index( inplace=True)
+    month['dayOfWeek'] =month['Date'].dt.day_name()
+    month['hour'] =month.Date.dt.hour
+    month=month.groupby(['dayOfWeek','hour'] ).sum()
+    month.reset_index( inplace=True)
+    month.drop(columns=['volume', 'Meter'], inplace=True)
+    return month
+
+#May
+May=dfall.loc['2020-05-01':'2020-05-31']
+May.reset_index( inplace=True)
+#check for outliers
+May["day"] = May['Date'].map(lambda x: x.day)
+plt.scatter(May.day, May.Consumption)
+plt.xticks(range(1, 31, 1))
+plt.show()
+##Remove outliers
+May.drop(May.index[May['Consumption'] >= 2], inplace = True)
+May.set_index("Date", inplace = True)
+## for    PUBLIC HOLIDAY TEST ##
+Maylabourday=dfall.loc['2020-05-01']
+MayAscensionday=dfall.loc['2020-05-26']
+
+
+
+May=monthconsump(May)
+
+#June
+June=dfall.loc['2020-06-01':'2020-06-30']
+June.reset_index( inplace=True)
+#check for outliers
+June["day"] = June['Date'].map(lambda x: x.day)
+plt.scatter(June.day, June.Consumption)
+plt.yticks(range(0,25,1))
+plt.xticks(range(1, 31, 1))
+plt.show()
+##Remove outliers
+June.drop(June.index[June['Consumption'] >= 4], inplace = True)
+
+##  for   PUBLIC HOLIDAY TEST ##
+June.set_index("Date", inplace = True)
+JuneNational=dfall.loc['2020-06-06']
+JuneMidsummer=dfall.loc['2020-06-25']
+##
+June=monthconsump(June)
+
+#July
+July=dfall.loc['2020-07-01':'2020-07-31']
+July.reset_index( inplace=True)
+#check for outliers
+July["day"] = July['Date'].map(lambda x: x.day)
+plt.scatter(July.day, July.Consumption)
+plt.xticks(range(1, 31, 1))
+plt.show()
+##Remove outliers
+July.drop(July.index[July['Consumption'] >= 6], inplace = True)
+July.set_index("Date", inplace = True)
+##
+July=monthconsump(July)
+#August
+August=dfall.loc['2020-08-01':'2020-08-31']
+August.reset_index( inplace=True)
+#check for outliers
+August["day"] = August['Date'].map(lambda x: x.day)
+plt.scatter(August.day, August.Consumption)
+plt.yticks(range(0,15,1))
+plt.xticks(range(1, 31, 1))
+plt.show()
+##Remove outliers
+August.drop(August.index[August['Consumption'] >= 5], inplace = True)
+August.set_index("Date", inplace = True)
+##
+August=monthconsump(August)
+
+#plot one by one
+sns.set_style("whitegrid")
+plt.yticks(range(0, 80, 10))
+plt.xticks(range(0, 24, 1))
+sns.boxplot(x = 'hour', y = 'Consumption', data = May).set(xlabel='Hours',ylabel='Consumption [m3]', title='May')
+plt.yticks(range(0, 80, 10))
+plt.xticks(range(0, 24, 1))
+sns.boxplot(x = 'hour', y = 'Consumption', data = June).set(xlabel='Hours',ylabel='Consumption [m3]', title='June')
+plt.yticks(range(0, 80, 10))
+plt.xticks(range(0, 24, 1))
+sns.boxplot(x = 'hour', y = 'Consumption', data = July).set(xlabel='Hours',ylabel='Consumption [m3]', title='July')
+plt.yticks(range(0, 80, 10))
+plt.xticks(range(0, 24, 1))
+sns.boxplot(x = 'hour', y = 'Consumption', data = August).set(xlabel='Hours',ylabel='Consumption [m3]', title='August')
+
+
+##### PRECIPITATION DATA #####
+precp=pd.read_csv(r'Downloads\smhi-opendata_5_98210_20221218_124248.csv',sep=';', skiprows=9, index_col="Från Datum Tid (UTC)")
+precp.index=pd.to_datetime(precp.index,infer_datetime_format=True)
+precp=precp.loc['2020-05-01':'2020-09-15']
+precp.drop(precp.columns[[0,1,3,4,5]], axis=1, inplace=True)
+precp.columns = ['precipitation']
+precp.reset_index( inplace=True)
+precp.drop(precp.columns[[0]], axis=1, inplace=True)
+
+All = pd.concat([All, precp, dfallsum], axis=1)
+All.drop(columns=['Date'], axis=1, inplace=True)
+
+
+#just for the date column, very random decision
+Datetry=Dwithtypesum[:]
+Datetry.reset_index()
+Datetry.drop(Datetry.columns[[1]], axis=1, inplace=True)
+All=pd.concat([All, Datetry], axis=1)
+All.set_index("Date", inplace = True)
+
+
+#For corelation chart
+
+Corelationtable=All[:]
+Corelationtable.reset_index( inplace=True)
+Corelationtable['Day'] = Corelationtable.Date.dt.day
+Corelationtable['Month'] = Corelationtable.Date.dt.month
+# Corelationtable['hour'] = Corelationtable.Date.dt.hour
+Corelationtable.drop(Corelationtable.columns[0], axis=1, inplace=True)
+Corelationtable = Corelationtable[['Temperature', 'Day', 'Month','precipitation','Consumption']]
+
+#This part is has not been included in report#
+z = {}
+for i in range(0,4):
+    a = Corelationtable.iloc[:,i]
+    b = Corelationtable.iloc[:,4] 
+    z[i]=a.corr(b)
+z=pd.DataFrame.from_dict(z, orient='index')
+z.index=['Temperature', 'Day', 'Month','precipitation']
+z.columns=['Coorelation coeff']
+z=z.sort_values(by=['Coorelation coeff'], ascending=False)
+z.plot.bar(y=['Coorelation coeff'], use_index=True)
+plt.title('Check for coorelation between dependent and independent variables')
+plt.ylabel('Cooralation [%]')
+plt.xlabel('Variables')
+plt.show()
+
+#instead of above part, this has been included#
+plt.figure(figsize=(6, 3))
+heatmap = sns.heatmap(Corelationtable.corr(), vmin=-1, vmax=1, annot=True)
+heatmap.set_title('Correlation Heatmap', fontdict={'fontsize':10}, pad=10)
+
+##     PUBLIC HOLIDAY TEST ##
+
+Maylabourday=monthconsump(Maylabourday)
+MayAscensionday=monthconsump(MayAscensionday)
+JuneNational=monthconsump(JuneNational)
+JuneMidsummer=monthconsump(JuneMidsummer)
+
+#normalize the data
+Maymean=May["Consumption"].mean()
+May['Factor']=np.nan
+for i in range(len(May)):
+    May['Factor'][i]=May.iloc[i][2]/Maymean
+
+Maylabourdaymean=Maylabourday["Consumption"].mean()
+Maylabourday['Factor']=np.nan
+for i in range(len(Maylabourday)):
+   Maylabourday['Factor'][i]=Maylabourday.iloc[i][2]/Maylabourdaymean
+   
+   
+MayAscensiondaymean=MayAscensionday["Consumption"].mean()
+MayAscensionday['Factor']=np.nan
+for i in range(len(MayAscensionday)):
+  MayAscensionday['Factor'][i]=MayAscensionday.iloc[i][2]/MayAscensiondaymean
+
+
+#june
+#normalize the data
+Junemean=June["Consumption"].mean()
+June['Factor']=np.nan
+for i in range(len(May)):
+    June['Factor'][i]=June.iloc[i][2]/Junemean
+
+JuneMidsummermean=JuneMidsummer["Consumption"].mean()
+JuneMidsummer['Factor']=np.nan
+for i in range(len(Maylabourday)):
+   JuneMidsummer['Factor'][i]=JuneMidsummer.iloc[i][2]/JuneMidsummermean
+   
+   
+JuneNationalmean=JuneNational["Consumption"].mean()
+JuneNational['Factor']=np.nan
+for i in range(len(MayAscensionday)):
+ JuneNational['Factor'][i]=JuneNational.iloc[i][2]/JuneNationalmean
+
+
+
+#plots
+
+plt.xticks(range(0, 24, 1))
+fig,ax=plt.subplots()
+sns.boxplot(x = 'hour', y = 'Factor', data = June,ax=ax).set(xlabel='Hours',ylabel='Consumption [m3]', title='June')
+sns.lineplot(y=JuneNational.Factor,x=JuneNational.hour,ax=ax, legend='brief', label='National Day')
+sns.lineplot(y=JuneMidsummer.Factor,x=JuneMidsummer.hour,ax=ax, legend='brief', label='Midsummer')
+plt.show()
+
+
+plt.xticks(range(0, 24, 1))
+fig,ax=plt.subplots()
+sns.boxplot(x = 'hour', y = 'Factor', data = May,ax=ax).set(xlabel='Hours',ylabel='Consumption [m3]', title='May')
+sns.lineplot(y=MayAscensionday.Factor,x=MayAscensionday.hour,ax=ax, legend='brief', label='Ascensionday')
+# sns.lineplot(y=Maylabourday.Factor,x=Maylabourday.hour,ax=ax, legend='brief', label='labourday')
+plt.show()
+
+
+ax=sns.set_style("whitegrid")
+ax = sns.lmplot(x="precipitation", y="Consumption", line_kws={'color': 'red'},height=4,aspect=1.5,data=All).set(title='Relation between Precipitation and Consumption')
+
+ax.set(xlabel='Precipitation [mm]', ylabel='Total Consumption [m3]')
+
+
+
+#### Assembling the Data and creating models 
+
+Sheet = ['Export', 'A']
+
+Data = pd.read_excel(r'D:\Digitalization\Project\Vattenförbrukningsdata Norrvatten v211006.xlsx', sheet_name = Sheet )
+temp = pd.read_csv(r'D:\Digitalization\Project\Temp.csv', sep = ';', skiprows = 9 )
+prec = pd.read_csv(r'D:\Digitalization\Project\Precipitation.csv', sep =';', skiprows  = 9)
+temp.info()
+# Reducing temperature and precipitation dataframes and converting column to datetime 
+temp['Datum'] = pd.to_datetime(temp['Datum'])
+prec.iloc[:,2] = pd.to_datetime(prec.iloc[:,2])
+temp.iloc[:,1] = pd.to_datetime(temp.iloc[:,1])
+
+rp1 = prec[prec.iloc[:,2] == '2020-05-01'].index.values
+rp2 = prec[prec.iloc[:,2] == '2020-09-15'].index.values
+
+prec = prec.loc[rp1[0] : rp2[len(rp2) - 1]]
+
+rt1 =  temp[temp.iloc[:,0] == '2020-05-01'].index.values
+rt2 = temp[temp.iloc[:,0] == '2020-09-15'].index.values
+
+temp = temp.loc[rt1[0]: rt2[len(rt2) -1]]
+temp['Month'] = temp['Datum'].dt.month
+temp['Day'] = temp['Datum'].dt.day
+temp['Date'] = temp['Datum'].dt.date
+temp['Hour'] = temp.iloc[:,1].dt.hour
+temp['NewTime'] = np.nan
+# Making a new time for temperature as time and date were separated in the orignal data 
+for i in range(len(temp.iloc[:,1])):        
+    temp["NewTime"][i +521702] = f'{temp.iloc[i,8]} {temp.iloc[i,9]}:00:00'
+
+temp['NewTime'] = pd.to_datetime(temp['NewTime'])
+
+# Resampling
+temp.set_index(temp['NewTime'], inplace = True)
+
+temp = temp.resample('D').mean()
+temp.reset_index(inplace= True)
+
+# Creating a data frame to calculate consumption 
+Export = Data.get('Export')
+
+Export.iloc[:,2] = pd.to_datetime(Export.iloc[:,2])
+Export['Consumption'] = np.nan
+Export['ConClass'] = np.nan
+Export['Temp'] = np.nan
+Meter = []
+
+# Assigning Classes to every consumption range and calculating consumption 
+Meter = []
+for i in range(len(Export.iloc[:,0]) - 1): 
+    Meter.append(Export.iloc[i,0])
+    if Export.iloc[i, 0] == Export.iloc[i+1, 0]:
+        Export['Consumption'][i] = Export.iloc[i+1, 1] - Export.iloc[i,1]
+    else :
+        Export.iloc[i,1] = 0
+# Looking at the data to assign classes 
+fig, (ax1, ax2, ax3) = plt.subplots(3, figsize = [12,7])
+fig.suptitle('Distribution of hourly consumption')   
+ax1.hist(Export['Consumption'],  range = [0,0.1]) 
+ax2.hist(Export['Consumption'],  range = [0.1,1])
+ax2.set_ylabel('Number of Data points') 
+ax3.hist(Export['Consumption'],  range = [1,3])
+ax3.set_xlabel('Consumption m3/hour')
+ax3.set_ylabel('Number of Data points')
+
+# Separating meter numbers from the data 
+Meter = [*set(Meter)]       
+
+Export['Month'] = Export.iloc[:,2].dt.month
+Export['Day'] = Export.iloc[:,2].dt.day
+
+# Making frames for each meter 
+Export.info()
+Ldf =[]
+for i in range(len(Meter)):
+    r = Export[Meter[i] == Export.iloc[:,0]].index.values
+    si = np.linspace(0, len(r) , num = len(r))
+    l = pd.DataFrame(si)
+    l['Avläsningstidpunkt'] = np.nan
+    l['Consumption'] = np.nan
+    for g in range(len(r) -1 ):
+        l['Avläsningstidpunkt'][g] = Export.iloc[r[g], 2]
+        l['Consumption'][g] = Export.iloc[r[g], 3]
+    Ldf.append(l)
+        
+# resampling data to hourly    
+Ldf1 = []
+for i in range(len(Ldf)): 
+    Ldf1.append(Ldf[i])    # preserving earlier list 
+
+# resampling time and consumptinon according to hourly patterns...
+for i in range(len(Ldf1)): 
+    Ldf1[i].index = Ldf1[i]['Avläsningstidpunkt']
+    Ldf1[i] = Ldf1[i].resample('H').mean()
+    Ldf1[i] = Ldf1[i].reset_index()
+    
+    
+    
+# creating the hourly DataFrame     
+size = np.linspace(0, 3300*132, num = 3300*132 )  
+ExportH = pd.DataFrame(size)
+ExportH['Consumption'] = np.nan
+ExportH['Time'] = np.nan
+ExportH['ConClass'] = np.nan
+
+
+th =0 
+# Appending to the new dataframe and assigning classes to each value. Classes are assigned according to earlier histogram 
+for i in range(len(Ldf1)): 
+    for g in range(len(Ldf1[i])):
+        ExportH['Consumption'][th+g] = Ldf1[i]['Consumption'][g]
+        ExportH['Time'][th+g] = Ldf1[i]['Avläsningstidpunkt'][g]
+        if ExportH['Consumption'][th+g] >= 0 and ExportH['Consumption'][th+g] < 0.01:
+             ExportH['ConClass'][th+g] = 0
+        if ExportH['Consumption'][th+g] < 0.0196 and  ExportH['Consumption'][th+g] >= 0.01 :
+            ExportH['ConClass'][th+g] = 1
+        if ExportH['Consumption'][th+g] < 0.0296 and ExportH['Consumption'][th+g] >= 0.0196 :
+            ExportH['ConClass'][th+g] = 2
+        if ExportH['Consumption'][th+g] < 0.05 and ExportH['Consumption'][th+g] >= 0.0296:
+            ExportH['ConClass'][th+g] = 3
+        if ExportH['Consumption'][th+g] < 0.191 and ExportH['Consumption'][th+g] >= 0.05 :
+            ExportH['ConClass'][th+g] = 4
+        if ExportH['Consumption'][th+g] < 0.3 and ExportH['Consumption'][th+g] >= 0.191 :
+            ExportH['ConClass'][th+g] = 5
+        if ExportH['Consumption'][th+g] >= 0.3 :
+            ExportH['ConClass'][th+g] = 6
+        
+    th+=len(Ldf1[i])
+    
+
+
+
+
+ExportH.iloc[3305,1] == Ldf1[1].iloc[5,1] # To check if the code is right 
+# Separating hour, month, year and day from timestamp in the Export column    
+ExportH.drop(columns = 0 , inplace = True)
+ExportH['Time']= pd.to_datetime(ExportH['Time'])
+ExportH['Date'] = ExportH['Time'].dt.date
+ExportH['Hour'] = ExportH['Time'].dt.hour
+ExportH['Month'] = ExportH['Time'].dt.month
+ExportH['Year'] = ExportH['Time'].dt.year
+ExportH['Day'] = ExportH['Time'].dt.day    
+    
+ExportH = ExportH.dropna()
+
+
+
+
+# Getting Daily data from resample function same as hourly 
+size1 = np.linspace(0, 138*132, num = 138*132 )
+Ldf2 = []
+for i in range(len(Ldf1)):
+    Ldf2.append(Ldf1[i]) # Preserving earlier list 
+
+for i in range(len(Ldf2)): 
+    Ldf2[i].index = Ldf2[i]['Avläsningstidpunkt']
+    Ldf2[i] = Ldf2[i].resample('D').sum()
+    Ldf2[i] = Ldf2[i].reset_index()
+    
+
+ExportD = pd.DataFrame(size1)
+ExportD['Consumption'] = np.nan
+ExportD['Time'] = np.nan
+ExportD['ConClass'] = np.nan
+ExportD['Temp'] = np.nan
+ExportD['P'] = np.nan
+
+t1=0
+for i in range(len(Ldf2)): 
+    for g in range(len(Ldf2[i])):
+        ExportD['Consumption'][t1+g] = Ldf2[i]['Consumption'][g]
+        ExportD['Time'][t1+g] = Ldf2[i]['Avläsningstidpunkt'][g]
+    t1 += len(Ldf2[i])
+
+
+
+ExportD.drop(columns = 0 , inplace = True)
+ExportD['Time']= pd.to_datetime(ExportD['Time'])
+ExportD['Date'] = ExportD['Time'].dt.date
+ExportD['Month'] = ExportD['Time'].dt.month
+ExportD['Year'] = ExportD['Time'].dt.year
+ExportD['Day'] = ExportD['Time'].dt.day 
+
+
+
+
+
+
+fig, (ax1, ax2) = plt.subplots(2, figsize = [12,7])
+fig.suptitle('Distribution of Daily consumption')   
+ax1.hist(ExportD['Consumption'], range = [0,3])
+ax1.set_ylabel('Number of Data points')
+ax2.hist(ExportD['Consumption'], range = [3,10])
+ax2.set_ylabel('Number of Data points') 
+ax2.set_xlabel('Consumption m3/hour')
+ax2.set_ylabel('Number of Data points')
+
+
+
+
+
+# Assigning classes by looking at histogram
+t11=0
+for i in range(len(Ldf2)): 
+    for g in range(len(Ldf2[i])):
+        if ExportD['Consumption'][t11+g] >= 0 and ExportD['Consumption'][t11+g] < 0.289:
+             ExportD['ConClass'][t11+g] = 0
+        if ExportD['Consumption'][t11+g] < 0.602 and  ExportD['Consumption'][t11+g] >= 0.289 :
+            ExportD['ConClass'][t11+g] = 1
+        if ExportD['Consumption'][t11+g] < 0.888 and ExportD['Consumption'][t11+g] >= 0.602 :
+            ExportD['ConClass'][t11+g] = 2
+        if ExportD['Consumption'][t11+g] < 1.487 and ExportD['Consumption'][t11+g] >= 0.888:
+            ExportD['ConClass'][t11+g] = 3
+        if ExportD['Consumption'][t11+g] < 4.39 and ExportD['Consumption'][t11+g] >= 1.487 :
+            ExportD['ConClass'][t11+g] = 4
+        if ExportD['Consumption'][t11+g] < 5.79 and ExportD['Consumption'][t11+g] >= 4.39 :
+            ExportD['ConClass'][t11+g] = 5
+        if ExportD['Consumption'][t11+g] >= 5.79 :
+            ExportD['ConClass'][t11+g] = 6
+    t11 += len(Ldf2[i])
+    
+
+for i in range(len(temp.iloc[:,0])):
+    r = ExportD[temp.iloc[i,0] == ExportD.iloc[:,1]].index.values
+    for g in range(len(r)): 
+        ExportD['Temp'][r[g]] = temp.iloc[i,1]
+        ExportD['P'][r[g]] = prec.iloc[i,3]
+
+# Getting Weekly data from resample function
+
+temp1 = temp
+prec1 = prec
+
+temp1.set_index(temp['NewTime'], inplace = True)
+
+temp1 = temp1.resample('W').mean()
+temp1.reset_index(inplace= True)
+
+prec1.set_index(prec1.iloc[:, 2 ], inplace = True)
+
+prec1 = prec1.resample('W').sum()
+prec1.reset_index(inplace= True)
+
+Ldf3 = []
+
+for i in range(len(Ldf2)):
+    Ldf3.append(Ldf2[i])
+ # Preserving earlier list 
+
+for i in range(len(Ldf3)): 
+    Ldf3[i].index = Ldf3[i]['Avläsningstidpunkt']
+    Ldf3[i] = Ldf3[i].resample('W').sum()
+    Ldf3[i] = Ldf3[i].reset_index()
+size2 = np.linspace(0, 21*132, num = 21*132 )   
+
+ExportW = pd.DataFrame(size2)
+ExportW['Consumption'] = np.nan
+ExportW['Time'] = np.nan
+ExportW['ConClass'] = np.nan
+ExportW['WeekNo.'] = np.nan
+ExportW['Temp'] = np.nan
+ExportW['P'] = np.nan
+
+t2=0
+for i in range(len(Ldf3)): 
+    for g in range(len(Ldf3[i])):
+        ExportW['Consumption'][t2+g] = Ldf3[i]['Consumption'][g]
+        ExportW['Time'][t2+g] = Ldf3[i]['Avläsningstidpunkt'][g]
+        ExportW['WeekNo.'][t2 + g] = g 
+    t2 += len(Ldf3[i])
+
+
+
+ExportW.drop(columns = 0 , inplace = True)
+ExportW['Time']= pd.to_datetime(ExportW['Time'])
+ExportW['Date'] = ExportW['Time'].dt.date
+ExportW['Month'] = ExportW['Time'].dt.month
+ExportW['Year'] = ExportW['Time'].dt.year
+ 
+fig, (ax1, ax2) = plt.subplots(2, figsize = [12,7])
+fig.suptitle('Distribution of Weekly consumption')   
+ax1.hist(ExportW['Consumption'], range = [0,5])
+ax1.set_ylabel('Number of Data points')
+ax2.hist(ExportW['Consumption'], range = [5,20])
+ax2.set_ylabel('Number of Data points') 
+ax2.set_xlabel('Consumption m3/hour')
+ax2.set_ylabel('Number of Data points')
+
+
+# classes accroding to histogram 
+t21=0
+for i in range(len(Ldf3)): 
+    for g in range(len(Ldf3[i])):
+        if ExportW['Consumption'][t21+g] >= 0 and ExportW['Consumption'][t21+g] < 0.49:
+             ExportW['ConClass'][t21+g] = 0
+        if ExportW['Consumption'][t21+g] < 0.98 and  ExportW['Consumption'][t21+g] >= 0.49 :
+            ExportW['ConClass'][t21+g] = 1
+        if ExportW['Consumption'][t21+g] < 3 and ExportW['Consumption'][t21+g] >= 0.98:
+            ExportW['ConClass'][t21+g] = 2
+        if ExportW['Consumption'][t21+g] < 4 and ExportW['Consumption'][t21+g] >= 3:
+            ExportW['ConClass'][t21+g] = 3
+        if ExportW['Consumption'][t21+g] < 5 and ExportW['Consumption'][t21+g] >= 4 :
+            ExportW['ConClass'][t21+g] = 4
+        if ExportW['Consumption'][t21+g] < 6.6 and ExportW['Consumption'][t21+g] >= 5 :
+            ExportW['ConClass'][t21 +g] = 5 
+            
+        if ExportW['Consumption'][t21+g] < 9.41 and ExportW['Consumption'][t21+g] >= 6.6 :
+            ExportW['ConClass'][t21 +g] = 6 
+        if ExportW['Consumption'][t21 +g] >= 9.41 :
+            ExportW['ConClass'][t21 + g] = 7 
+    t21 += len(Ldf3[i])
+
+
+for i in range(len(temp1.iloc[:,0])):
+    r = ExportW[temp1.iloc[i,0] == ExportW.iloc[:,1]].index.values
+    for g in range(len(r)): 
+        ExportW['Temp'][r[g]] = temp1.iloc[i,1]
+        ExportW['P'][r[g]] = prec1['Nederbördsmängd'][i]
+
+
+# Tuning Data frames to make models 
+
+# Not including precipitation and temperature in the model for hourly precitions 
+
+ExportW.dropna(inplace = True)
+ExportD.dropna(inplace= True)
+
+ExportD.drop(columns = ['Time', 'Date'], inplace = True)
+ExportH.drop(columns = [ 'Time', 'Date'] , inplace = True)
+ExportW.drop(columns = ['Time', 'Date' ], inplace = True)
+    
+#ExportD.drop(columns = ['Consumption'], inplace = True)
+#ExportH.drop(columns = [ 'Consumption'] , inplace = True)
+#ExportW.drop(columns = ['Consumption' ], inplace = True)
+
+
+# Creating Models from here 
+
+# creating functions for test and train data 
+def StrT(df, c, g): 
+    LstData = []
+    i = 0
+    while i < 3 :
+        size = len(df.iloc[:,0])
+        split = (size* 30)/ 100
+        l=[]
+        train= pd.DataFrame(df)
+        n=0
+        while n <= split:
+            k = random.randint(0, len(df.iloc[:,0]))
+            l.append(k)
+            l= [*set(l)]
+            n+=1
+        
+        r = df.index.isin(l)
+        train = df.iloc[~r]
+        test = df.iloc[r]
+        trainxtr = train.drop( columns = [c, g])
+        trainytr = train[c]
+        testxt = test.drop( columns = [c, g])
+        testyt = test[c]
+        lst = [trainxtr, trainytr,testxt, testyt ]
+        LstData.append(lst)
+        i +=1
+    
+    return LstData
+    
+
+
+ 
+    
+LstHData = StrT(ExportH , 'ConClass', 'Consumption')   
+LstDData = StrT(ExportD, 'ConClass', 'Consumption')
+LstWData = StrT(ExportW, 'ConClass', 'Consumption')
+
+LstHDataC = StrT(ExportH, 'Consumption', 'ConClass')
+LstDDataC = StrT(ExportD, 'Consumption', 'ConClass')
+LstWDataC = StrT(ExportW, 'Consumption', 'ConClass')
+
+# Function of models to be used. 
+def RandF(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]   
+        for z in range(1,10):
+            model_rf=RandomForestClassifier(max_depth= z,random_state=0, bootstrap = True)
+            model_rf.fit(xtr,ytr)
+            y_predict=model_rf.predict(xt)
+            error=np.mean(y_predict !=yt)
+            l.append(error)
+        
+    return l
+
+def RandFe(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]   
+        for z in range(1,10):
+            model_rf=RandomForestClassifier(max_depth= z,random_state=0, bootstrap = True)
+            model_rf.fit(xtr,ytr)
+            y_predict=model_rf.predict(xt)
+            error=np.mean(abs(y_predict -yt))
+            l.append(error)
+        
+    return l
+def RandFR(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]
+        for z in range(1,10):
+            model_rf=RandomForestRegressor(max_depth=z, random_state=0)
+            model_rf.fit(xtr,ytr)
+            y_predict=model_rf.predict(xt)
+            error=np.sqrt((np.square(y_predict - yt)).mean())
+            l.append(error)
+    return l 
+
+
+
+
+# boosting 
+def bosting(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]    
+        model_ab=AdaBoostClassifier()
+        model_ab.fit(xtr,ytr)
+        y_predict=model_ab.predict(xt)
+        error=np.mean(y_predict !=yt)
+        l.append(error)      
+    return l
+
+
+def bostinge(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]    
+        model_ab=AdaBoostClassifier()
+        model_ab.fit(xtr,ytr)
+        y_predict=model_ab.predict(xt)
+        error=np.mean(abs(y_predict -yt))
+        l.append(error)      
+    return l
+def bostingR(lst):
+    l =[] 
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]    
+        model_ab=GradientBoostingRegressor(random_state=0, )
+        model_ab.fit(xtr,ytr)
+        y_predict=model_ab.predict(xt)
+        error=np.sqrt((np.square(y_predict - yt)).mean())
+        l.append(error)      
+    return l
+
+# Logistic regression 
+
+def LogS(lst):
+    l =[]
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]
+        model = skl.LogisticRegression()
+    
+        model.fit(xtr, ytr)
+        
+        pred = model.predict(xt)
+        error1 = np.mean(pred != yt)
+        
+        l.append(error1)
+    return l
+
+
+
+
+def LogSe(lst):
+    l =[]
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]
+        model = skl.LogisticRegression()
+    
+        model.fit(xtr, ytr)
+        
+        pred = model.predict(xt)
+        error1 =np.mean(abs(pred -yt))
+        l.append(error1)
+    return l
+
+
+
+def LinR(lst):
+    l =[]
+    for i in range(0,3):
+        xtr = lst[i][0]
+        ytr = lst[i][1]
+        xt = lst[i][2]
+        yt = lst[i][3]
+        for z in range(1, 4):
+            model = skl.LinearRegression()
+            poly = PolynomialFeatures(degree=z, include_bias=False)
+            xtr = poly.fit_transform(xtr)
+            xt = poly.fit_transform(xt)
+            model.fit(xtr, ytr)
+            pred = model.predict(xt)
+            error1 = np.sqrt((np.square(pred - yt)).mean())
+            l.append(error1)
+    return l 
+
+
+
+
+MHlog = LogS(LstHData)
+MHRand = RandF(LstHData)
+MHBoost = bosting(LstHData)
+MHRandR = RandFR(LstHDataC)
+MHBoostR = bostingR(LstHDataC)
+MHLinR = LinR(LstHDataC)
+MHRande = RandFe(LstHData)
+MHBoose = bostinge(LstHData)
+MHloge = LogSe(LstHData)
+
+
+MDlog = LogS(LstDData)
+MDRand = RandF(LstDData)
+MDRandR = RandFR(LstDDataC)
+MDBoostR = bostingR(LstDDataC)
+MDBoost = bosting(LstDData)
+MDLinR = LinR(LstDDataC)
+MDRande = RandFe(LstDData)
+MDBoose = bostinge(LstDData)
+MDloge = LogSe(LstDData)
+
+
+MWlog = LogS(LstWData)
+MWRand = RandF(LstWData)
+MWBoost = bosting(LstWData)
+MWRandR = RandFR(LstWDataC)
+MWBoostR = bostingR(LstWDataC)
+MWLinR = LinR(LstWDataC)
+MWBoose = bostinge(LstWData)
+MWloge = LogSe(LstWData)
+MWRande = RandFe(LstWData)
+
+
+# used for mean 
+#np.mean(MWBoostR)
+
+
+
+#lH = []
+
+#b = MHRandR
+#a = len(b) / 3
+#for i in range(int(a)):
+#    t = []
+#    t.append(b[i])
+#    t.append(b[i+9])
+#    t.append(b[i+18])
+#    lH.append(np.mean(t)) 
